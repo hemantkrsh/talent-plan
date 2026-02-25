@@ -45,11 +45,10 @@ impl<R:Read + Seek> BufReaderWithPosition<R>{
 
 impl<R:Read+Seek> BufReaderWithPosition<R>{
     pub fn read(&mut self,buf:&mut[u8]) -> io::Result<usize> {
-        let pos = self.reader.read(buf)?;
-        self.pos += pos as u64;
-        Ok(pos)
+        let len = self.reader.read(buf)?;
+        self.pos += len as u64;
+        Ok(len)
     }
-    
 }
 
 impl<R:Read+Seek> Seek for BufReaderWithPosition<R>{
@@ -62,4 +61,30 @@ impl<R:Read+Seek> Seek for BufReaderWithPosition<R>{
 struct BufWriterWithPosition<W:Write + Seek>{
     writer: BufWriter<W>,
     pos: u64
+}
+
+impl<W:Write+Seek> BufWriterWithPosition<W>{
+    fn new(&mut self,mut inner: W) -> Result<Self>{
+        let pos= inner.seek(SeekFrom::Current(0))?;
+        Ok(BufWriterWithPosition { writer: BufWriter::new(inner), pos: pos})
+    }
+}
+
+impl<W:Write+Seek> Write for BufWriterWithPosition<W>{
+    fn write(&mut self,buf: &[u8]) -> io::Result<usize>{
+        let len = self.writer.write(buf)?;
+        self.pos += len as u64;
+        Ok(len)
+    }
+
+    fn flush(&mut self) -> io::Result<()>{
+        self.writer.flush()
+    }
+}
+
+impl<W:Write+Seek> Seek for BufWriterWithPosition<W>{
+    fn seek(&mut self,pos:SeekFrom) -> io::Result<u64> {
+        self.pos = self.writer.seek(pos)?;
+        Ok(self.pos)
+    }
 }
