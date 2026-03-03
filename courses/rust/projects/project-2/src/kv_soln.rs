@@ -1,13 +1,69 @@
-use std::{collections::{BTreeMap, HashMap}, fs::File, io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write}, ops::Range, path::PathBuf};
+use std::{collections::{BTreeMap, HashMap}, fs::{File, OpenOptions}, io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write}, ops::Range, path::PathBuf};
 use crate::{KvStore, Result};
 
 pub struct KVStore {
     path: PathBuf,
     gen: u64,
-    compaction_bytes: u64,
+    uncompaction_bytes: u64,
     index: BTreeMap<String, CommandPosition>,
     readers: HashMap<u64, BufReaderWithPosition<File>>,
     writer: BufWriterWithPosition<File>
+}
+
+impl KVStore {
+    fn compact(&mut self) -> Result<()> {
+        let compact_gen = self.gen+1;
+        self.gen += 2; //incr +2 to accomodate the compact_gen as gen+1
+
+        let mut compact_writer = self.new_log_file(compact_gen)?;
+        let mut writer_pos:u64=0;
+
+        let cmd_pos = self.index.values_mut();
+        for cmd in cmd_pos{
+            let reader = self.readers.get_mut(&cmd.gen).expect("reader not found");
+            if cmd.pos != reader.pos {
+                reader.seek(SeekFrom::Start(cmd.pos))?;
+            }
+            //get values and copy to compact gen
+            let mut new_reader = reader.take(cmd.len);
+            let len = io::copy(&mut new_reader, &mut compact_writer)?;
+            *cmd = (compact_gen, writer_pos..writer_pos+len).into();
+            writer_pos+=len;
+        }
+        compact_writer.flush()?;
+
+        //remove old readers gen < compact_gen
+        let stale_readers: Vec<_> = self.readers.keys().filter( |&k| *k < compact_gen).cloned().collect();
+        for reader in stale_readers{
+            self.readers.remove(&reader);
+        }
+
+        self.uncompaction_bytes = 0;
+
+        Ok(())
+    }
+
+    fn new_log_file(&mut self, gen: u64) -> Result<BufWriterWithPosition<File>> {
+        new_log_file(&self.path, &mut self.readers,gen)
+    }
+}
+
+fn new_log_file(path:&PathBuf,readers:&mut HashMap<u64,BufReaderWithPosition<File>>, gen:u64) -> Result<BufWriterWithPosition<File>>{
+    let path = log_path(path,gen);
+    let writer = BufWriterWithPosition::new( 
+        OpenOptions::
+        new().
+        create(true).
+        write(true).
+        append(true)
+        .open(&path)?
+    )?;
+    readers.insert(gen, BufReaderWithPosition::new(File::open(&path)?)?);
+    Ok(writer)
+}
+
+fn log_path(dir:&PathBuf,gen:u64) -> PathBuf{
+    dir.join(format!("{}.log",gen))
 }
 
 struct CommandPosition {
@@ -34,7 +90,7 @@ struct BufReaderWithPosition<R:Read + Seek>{
 }
 
 impl<R:Read + Seek> BufReaderWithPosition<R>{
-    pub fn new(self,mut inner: R) -> Result<Self> {
+    pub fn new(mut inner: R) -> Result<Self> {
         let pos = inner.seek(SeekFrom::Current(0))?;
         Ok(Self {
             reader: BufReader::new(inner),
@@ -43,8 +99,8 @@ impl<R:Read + Seek> BufReaderWithPosition<R>{
     }
 }
 
-impl<R:Read+Seek> BufReaderWithPosition<R>{
-    pub fn read(&mut self,buf:&mut[u8]) -> io::Result<usize> {
+impl<R:Read+Seek> Read for BufReaderWithPosition<R>{
+    fn read(&mut self,buf:&mut[u8]) -> io::Result<usize> {
         let len = self.reader.read(buf)?;
         self.pos += len as u64;
         Ok(len)
@@ -64,7 +120,7 @@ struct BufWriterWithPosition<W:Write + Seek>{
 }
 
 impl<W:Write+Seek> BufWriterWithPosition<W>{
-    fn new(&mut self,mut inner: W) -> Result<Self>{
+    fn new(mut inner: W) -> Result<Self>{
         let pos= inner.seek(SeekFrom::Current(0))?;
         Ok(BufWriterWithPosition { writer: BufWriter::new(inner), pos: pos})
     }
