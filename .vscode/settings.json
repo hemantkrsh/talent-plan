@@ -1,0 +1,15 @@
+{
+  "rust-analyzer.linkedProjects": [
+    "courses/dss/Cargo.toml",
+    "courses/dss/labcodec/Cargo.toml",
+    "courses/dss/labrpc/Cargo.toml",
+    "courses/dss/linearizability/Cargo.toml",
+    "courses/dss/percolator/Cargo.toml",
+    "courses/dss/raft/Cargo.toml",
+    "courses/rust/projects/project-1/Cargo.toml",
+    "courses/rust/projects/project-2/Cargo.toml",
+    "courses/rust/projects/project-3/Cargo.toml",
+    "courses/rust/projects/project-4/Cargo.toml",
+    "courses/rust/projects/project-5/Cargo.toml"
+  ]
+}

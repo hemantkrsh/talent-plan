@@ -65,11 +65,32 @@ impl KVStore {
 fn load(
     gen: u64,
     reader: &mut BufReaderWithPosition<File>,
-    index: BTreeMap<String, CommandPosition>,
-) -> Result<()> {
-    reader.seek(SeekFrom::Start(0));
-    let stream = Deserializer::from_reader(reader).into_iter::<Command>();
-    Ok(())
+    index: &mut BTreeMap<String, CommandPosition>,
+) -> Result<u64> {
+    let mut uncompacted_bytes = 0u64;
+    let mut pos = reader.seek(SeekFrom::Start(0))?;
+    let mut stream = Deserializer::from_reader(reader).into_iter::<Command>();
+    while let Some(cmd) = stream.next() {
+        let new_pos = stream.byte_offset() as u64;
+        let cmd = cmd?;
+        match cmd{
+            Command::Set{key,.. } => {
+                let cmd = index.insert(key, (gen, pos..new_pos).into());
+                if let Some(old_cmd) = cmd{
+                    uncompacted_bytes += old_cmd.len;
+                }
+            }
+            Command::Remove{key} => {
+                if let Some(old_cmd) = index.remove(&key){
+                    uncompacted_bytes += old_cmd.len;
+                }
+                //add the remove command for compaction as well
+                uncompacted_bytes += new_pos - pos;
+            }
+        }
+        pos = new_pos;
+        }
+    Ok(uncompacted_bytes)
 }
 
 fn new_log_file(
@@ -93,7 +114,7 @@ fn log_path(dir: &PathBuf, gen: u64) -> PathBuf {
     dir.join(format!("{}.log", gen))
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, serde::Serialize)]
 enum Command {
     Set{ key: String, value: String},
     Remove{ key: String}
