@@ -3,7 +3,7 @@ use serde_json::Deserializer;
 use crate::{KvStore, Result};
 use std::{
     collections::{BTreeMap, HashMap},
-    fs::{File, OpenOptions},
+    fs::{self, File, OpenOptions},
     io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write},
     ops::Range,
     path::PathBuf,
@@ -61,6 +61,30 @@ impl KVStore {
     }
 }
 
+fn sorted_gen_list(path: &PathBuf) -> Result<Vec<u64>> {
+    let mut gens = fs::read_dir(path)?;
+    let mut gen_list = Vec::new();
+    for gen in gens.by_ref() {
+        let gen = gen?;
+        if gen.file_type()?.is_file(){
+            let filename = gen.file_name();
+            // let file_ext = gen.path().extension();
+            if let Some(ext) = gen.path().extension() {
+                if ext == "log" {
+                    // process log file
+                    if let Some(file) = filename.to_str() {
+                        let gen = file.trim_end_matches(".log").parse::<u64>()?;
+                        gen_list.push(gen);
+
+                    }
+
+                }
+            }
+        }
+    }
+    gen_list.sort();
+    Ok(gen_list)
+}
 //load index from a given file
 fn load(
     gen: u64,
@@ -70,6 +94,7 @@ fn load(
     let mut uncompacted_bytes = 0u64;
     let mut pos = reader.seek(SeekFrom::Start(0))?;
     let mut stream = Deserializer::from_reader(reader).into_iter::<Command>();
+    
     while let Some(cmd) = stream.next() {
         let new_pos = stream.byte_offset() as u64;
         let cmd = cmd?;

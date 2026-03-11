@@ -17,6 +17,9 @@ pub enum KvsError {
     /// It indicated a corrupted log or a program bug.
     #[fail(display = "Unexpected command type")]
     UnexpectedCommandType,
+    /// Integer parsing error.
+    #[fail(display = "Parse int error")]
+    ParseIntError
 }
 
 impl From<io::Error> for KvsError {
@@ -28,6 +31,12 @@ impl From<io::Error> for KvsError {
 impl From<serde_json::Error> for KvsError {
     fn from(err: serde_json::Error) -> KvsError {
         KvsError::Serde(err)
+    }
+}
+
+impl From<std::num::ParseIntError> for KvsError {
+    fn from(err: std::num::ParseIntError) -> KvsError {
+        KvsError::ParseIntError
     }
 }
 
